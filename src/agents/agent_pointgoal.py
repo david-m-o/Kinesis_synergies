@@ -44,18 +44,89 @@ class AgentPointGoal(AgentIM):
 
         success_list = []
         last_reward_list = []
+        frame_coverage_list = []
+
 
         with to_cpu(*self.sample_modules), torch.no_grad():
             for i in range(runs):
-                result, last_reward = self.eval_single_thread()
+                result, last_reward, frame_coverage = self.eval_single_thread()
                 print(f"Episode {i} result: {result}")
                 success_list.append(result)
                 last_reward_list.append(last_reward)
+                frame_coverage_list.append(frame_coverage)
+
 
         success_rate = np.mean(success_list)
+        mean_frame_coverage = np.mean(frame_coverage_list)
         logger.info(f"Policy evaluation success rate: {success_rate}")
+        logger.info(f"Policy evaluation frame coverage: {mean_frame_coverage}")
+        
+        save_data = {
+                    "success_list": success_list,
+                    "pca_type": self.cfg.run.pca_type,
+                    "csi_pca_components": self.cfg.run.csi_pca_components,
+                }
+        
+
+        np.save(f"/home/david/LAB/Kinesis/csi/sucess_rate/results_{self.cfg.run.algorithm}_{self.cfg.run.pca_type}_{self.cfg.run.csi_pca_components}.npy", save_data)
+
+        #ADDED BY DAVID
+        if self.env.recording_biomechanics:
+            breakpoint()
+            print("Saving recorded biomechanics data.")
+            #ADDED BY DAVID 
+            muscle_controls = np.array(self.env.muscle_controls)
+            policy_outputs = np.array(self.env.policy_outputs)
+
+            np.save('/home/david/LAB/Kinesis/csi/recordings/muscle_controls_POINTGOAL.npy', muscle_controls) 
+            np.save('/home/david/LAB/Kinesis/csi/recordings/policy_outputs_POINTGOAL.npy', policy_outputs) 
+
+            
 
         return success_rate, last_reward_list
+    
+    def eval_policy_csi(self, epoch = 0, dump = False, runs = 100):
+        logger.info(f"Starting policy evaluation on target goal reaching with CSI ({self.cfg.run.algorithm}).")
+        self.env.start_eval(im_eval=True)
+
+        to_test(*self.sample_modules)
+
+
+        for num_components in range(1, 81, 1):
+            self.env.cfg.run.csi_pca_components = num_components
+            for trial in range(3):
+                print(f"Running trial {trial} with {self.env.cfg.run.csi_pca_components} components ({self.cfg.run.pca_type}, {self.cfg.run.algorithm}).")
+                
+                success_list = []
+                last_reward_list = []
+                frame_coverage_list = []
+                
+                #print(f"Number of components = {self.env.cfg.run.csi_pca_components}")
+                with to_cpu(*self.sample_modules), torch.no_grad():
+                    for i in range(runs):
+                        result, last_reward, frame_coverage = self.eval_single_thread()
+                        print(f"Episode {i} result: {result}")
+                        success_list.append(result)
+                        last_reward_list.append(last_reward)
+                        frame_coverage_list.append(frame_coverage)
+                        
+
+                success_rate = np.mean(success_list)
+                mean_frame_coverage = np.mean(frame_coverage_list)
+                logger.info(f"Policy evaluation with CSI ({self.cfg.run.algorithm}) success rate: {success_rate}")
+                logger.info(f"Policy evaluation with CSI ({self.cfg.run.algorithm}) Mean frame coverage: {mean_frame_coverage}")
+                
+                save_data = {
+                    "success_list": success_list,
+                    "pca_type": self.cfg.run.pca_type,
+                    "csi_pca_components": self.cfg.run.csi_pca_components,
+                }
+
+                #np.save(f"/home/david/LAB/Kinesis/data/csi/results_{self.cfg.run.csi_motion_category}_{self.cfg.run.csi_pca_components}.npy", save_data) # TODO: CHECK THIS PATH
+                np.save(f"/home/david/LAB/Kinesis/csi/sucess_rate_csi_{self.cfg.run.algorithm}/results_{self.cfg.run.algorithm}_{self.cfg.run.pca_type}_{self.env.cfg.run.csi_pca_components}_components_trial_{trial}.npy", save_data)
+
+    
+
     
     def eval_single_thread(self) -> Tuple[bool, float]:
         """
@@ -78,8 +149,8 @@ class AgentPointGoal(AgentIM):
                 done = terminated or truncated
 
                 if done:                      
-                    return not terminated, reward
+                    return not terminated, reward, self.env.frame_coverage
                 state = next_state
 
         # If the loop exits without termination, consider it a failure
-        return False, reward
+        return False, reward, self.env.frame_coverage
