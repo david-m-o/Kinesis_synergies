@@ -26,6 +26,10 @@ from omegaconf import DictConfig, OmegaConf
 
 import hydra
 
+from csi.ae_objects.ae_model import Autoencoder
+from csi.ae_objects.ae_v2_model import AutoencoderV2
+
+
 
 @hydra.main(
     version_base=None,
@@ -69,11 +73,17 @@ def main(cfg: DictConfig) -> None:
     torch.use_deterministic_algorithms(True)
 
     # breakpoint()
+    #print(OmegaConf.to_yaml(cfg))
     agent = agent_dict[cfg.learning.agent_name](
         cfg, dtype, device, training=True, checkpoint_epoch=cfg.epoch
     )
 
     if cfg.run.test:
+        #ADDED BY DAVID
+        ############################################## 
+        if cfg.run.csi : 
+            agent.eval_policy_csi(epoch=cfg.epoch)
+        ##############################################
         if cfg.run.im_eval:
             agent.eval_policy(epoch=cfg.epoch)
         else:
