@@ -20,5 +20,21 @@ smpl_data_dir: "data/smpl"
 initial_pose_file: "data/initial_pose/initial_pose_test.pkl"
 expert_path: ""
 
-recording_biomechanics: False
+recording_biomechanics: False #CHANGE to record or not 
 deactivate_muscles: False
+#ADDED BY DAVID
+intermediate_start: False
+
+csi: True #CHANGE to reduce dimensionalty or not
+algorithm: "pca" # choose : pca, nmf, fa, ica, ae
+pca_dict_path: "/home/david/LAB/Kinesis/csi/pca_objects/pca_muscle_controls_POINTGOAL.pkl" 
+nmf_dict_path: "/home/david/LAB/Kinesis/csi/nmf_objects/nmf_muscle_controls_dict.pkl"
+ica_dict_path: "/home/david/LAB/Kinesis/csi/ica_objects/ica_muscle_controls_dict.pkl"
+fa_dict_path: "/home/david/LAB/Kinesis/csi/fa_objects/fa_muscle_controls_dict.pkl"
+ae_dict_path: "/home/david/LAB/Kinesis/csi/ae_objects/ae_muscle_controls_dict.pkl"
+ae_v2_dict_path: "/home/david/LAB/Kinesis/csi/ae_objects/ae_v2_muscle_controls_dict.pkl"
+
+
+pca_type: "muscle_controls"
+#csi_motion_category: "walk"
+csi_pca_components: 40 
