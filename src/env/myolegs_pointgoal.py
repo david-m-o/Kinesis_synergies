@@ -21,6 +21,14 @@ from scipy.spatial.transform import Rotation as sRot
 
 import logging
 
+
+#ADDED BY DAVID
+import pickle
+import warnings
+from sklearn.exceptions import ConvergenceWarning
+import torch
+
+
 logger = logging.getLogger(__name__)
 
 class MyoLegsPointGoal(MyoLegsIm):
@@ -46,6 +54,29 @@ class MyoLegsPointGoal(MyoLegsIm):
 
         if self.cfg.run.test == True:
             self.results_list = []
+           
+        #ADDED BY DAVID
+        if self.cfg.run.csi:
+            # Load pca dict from pkl file
+            with open(self.cfg.run.pca_dict_path, "rb") as f_1:
+                self.pca_dict = pickle.load(f_1)
+                
+            with open(self.cfg.run.nmf_dict_path, "rb") as f_2:
+                self.nmf_dict = pickle.load(f_2)
+            
+            with open(self.cfg.run.ica_dict_path, "rb") as f_3:
+                self.ica_dict = pickle.load(f_3)
+            
+            with open(self.cfg.run.fa_dict_path, "rb") as f_4:
+                self.fa_dict = pickle.load(f_4)
+            
+            with open(self.cfg.run.ae_dict_path, "rb") as f_5:
+                self.ae_dict = pickle.load(f_5)
+            
+            with open(self.cfg.run.ae_v2_dict_path, "rb") as f_6:
+                self.ae_v2_dict = pickle.load(f_6)
+        
+
 
     def create_task_visualization(self) -> None:
         """
@@ -365,7 +396,25 @@ class MyoLegsPointGoal(MyoLegsIm):
         """
         if self.recording_biomechanics:
             self.policy_outputs.append(action)
+        
+        #ADDED BY DAVID
+        if self.cfg.run.csi and self.cfg.run.pca_type == "policy_outputs":
+            #pca = self.pca_dict[self.cfg.run.csi_motion_category]
+            pca = self.pca_dict
 
+            # Project the action on the first X principal components
+            projected_action = pca.transform(action.reshape(1, -1))
+
+            # Keep the first X principal components
+            projected_action[:, self.cfg.run.csi_pca_components:] = 0
+
+            # Then project it back to the original space
+            action = projected_action @ pca.components_ + pca.mean_
+
+            action = np.clip(action, -1, 1).flatten()
+        ####################################################################################
+       
+        
         self.physics_step(action)
         observation, reward, terminated, truncated, info = self.post_physics_step(action)
 
@@ -401,7 +450,74 @@ class MyoLegsPointGoal(MyoLegsIm):
 
                 else:
                     raise NotImplementedError
+                
+                #ADDED BY DAVID
+                if self.cfg.run.csi and self.cfg.run.pca_type == "muscle_controls":
+                    
+                    if self.cfg.run.algorithm == "pca":
+                        pca = self.pca_dict#[self.cfg.run.csi_motion_category]
+                        projected_activity = pca.transform(muscle_activity.reshape(1, -1))
+                        projected_activity[:, self.cfg.run.csi_pca_components:] = 0
+                        muscle_activity = projected_activity @ pca.components_ + pca.mean_
+                        muscle_activity = np.clip(muscle_activity, 0, 1)
+                    
+                    elif self.cfg.run.algorithm == "nmf":    
+                    
+                        nmf = self.nmf_dict[self.cfg.run.csi_pca_components]
+                        with warnings.catch_warnings():
+                            warnings.simplefilter("ignore", category=ConvergenceWarning)
+                            projected_activity = nmf.transform(muscle_activity.reshape(1, -1))
+
+                        muscle_activity = projected_activity @ nmf.components_
+                        muscle_activity = np.clip(muscle_activity, 0, 1)
+                    
+                    elif self.cfg.run.algorithm == "ica":   
+                        ica = self.ica_dict[self.cfg.run.csi_pca_components]
+                        with warnings.catch_warnings():
+                            warnings.simplefilter("ignore", category=ConvergenceWarning)
+                            projected_activity = ica.transform(muscle_activity.reshape(1, -1))
+                        muscle_activity = ica.inverse_transform(projected_activity)
+                        muscle_activity = np.clip(muscle_activity, 0, 1)
+                        
+                    elif self.cfg.run.algorithm == "fa": 
+                        fa = self.fa_dict[self.cfg.run.csi_pca_components]
+                        projected_activity = fa.transform(muscle_activity.reshape(1, -1))
+                        muscle_activity = projected_activity @ fa.components_ + fa.mean_
+                        muscle_activity = np.clip(muscle_activity, 0, 1)
+                        
+                    elif self.cfg.run.algorithm == "ae":  
+                        ae = self.ae_dict[self.cfg.run.csi_pca_components]
+                        X_tensor = torch.tensor(muscle_activity.reshape(1, -1), dtype=torch.float32)
+                        #X_tensor = torch.tensor(muscle_activity, dtype=torch.float32)
+                        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                        X_tensor = X_tensor.to(device)
+                
+                        ae.eval()
+                        with torch.no_grad():
+                            muscle_activity = ae(X_tensor).cpu().numpy()
+                        muscle_activity = np.clip(muscle_activity, 0, 1)
+                    
+                    elif self.cfg.run.algorithm == "ae_v2" : 
+                        ae_v2 = self.ae_v2_dict[self.cfg.run.csi_pca_components]
+                        #X_tensor = torch.tensor(muscle_activity.reshape(1, -1), dtype=torch.float32)
+                        X_tensor = torch.tensor(muscle_activity, dtype=torch.float32)
+                        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                        X_tensor = X_tensor.to(device)
+                
+                        ae_v2.eval()
+                        with torch.no_grad():
+                            muscle_activity = ae_v2(X_tensor).cpu().numpy()
+                        muscle_activity = np.clip(muscle_activity, 0, 1)
+                    
+                        
+                    else:
+                        raise ValueError(f"Unknown dimensionality reduction algorithm: {self.cfg.run.algorithm}")
+
+                        
+                            
+                ##############################################################################
                   
                 self.mj_data.ctrl[:] = muscle_activity
                 mujoco.mj_step(self.mj_model, self.mj_data)
                 self.curr_power_usage.append(self.compute_energy_reward(muscle_activity))
+                
